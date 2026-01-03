@@ -57,17 +57,22 @@ echo "Patch directory: $PATCH_DIR"
 
 cd "$BUSYBOX_SRC"
 
-# Apply patches
+# Apply patches (quiet + check before applying to avoid noisy warnings)
 if [ -d "$PATCH_DIR" ]; then
     for patch in "$PATCH_DIR"/busybox-*.patch; do
-        if [ -f "$patch" ]; then
-            echo "Applying patch: $(basename "$patch")"
-            patch -p1 < "$patch" || echo "Patch may already be applied or failed"
+        [ -f "$patch" ] || continue
+        name="$(basename "$patch")"
+        echo "Applying patch: $name"
+        # prefer git apply --check to detect already-applied patches
+        if git -C "$BUSYBOX_SRC" apply --check "$patch" 2>/dev/null; then
+            # apply patch quietly
+            patch -p1 -s < "$patch" || echo "Failed to apply $name"
+        else
+            echo "Skipping $name (already applied or not applicable)"
         fi
     done
 else
-    echo "Warning: Patch directory not found at $PATCH_DIR"
-    ls -la "$REPO_ROOT/build/" || true
+    echo "No patch directory at $PATCH_DIR, skipping patches"
 fi
 
 # Configure BusyBox for static build
