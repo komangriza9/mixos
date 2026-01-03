@@ -50,15 +50,22 @@ fi
 
 cd "$BUSYBOX_SRC"
 
-# Apply patches
-PATCH_DIR="$(dirname "$0")/../patches"
+# Apply patches - find patch directory relative to script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCH_DIR="$SCRIPT_DIR/../patches"
+
+echo "Script directory: $SCRIPT_DIR"
+echo "Patch directory: $PATCH_DIR"
+
 if [ -d "$PATCH_DIR" ]; then
     for patch in "$PATCH_DIR"/busybox-*.patch; do
         if [ -f "$patch" ]; then
             echo "Applying patch: $(basename "$patch")"
-            patch -p1 < "$patch" || true
+            patch -p1 < "$patch" || echo "Patch may already be applied or failed"
         fi
     done
+else
+    echo "Warning: Patch directory not found at $PATCH_DIR"
 fi
 
 # Configure BusyBox for static build
