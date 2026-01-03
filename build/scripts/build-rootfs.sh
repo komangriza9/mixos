@@ -50,6 +50,17 @@ fi
 
 cd "$BUSYBOX_SRC"
 
+# Apply patches
+PATCH_DIR="$(dirname "$0")/../patches"
+if [ -d "$PATCH_DIR" ]; then
+    for patch in "$PATCH_DIR"/busybox-*.patch; do
+        if [ -f "$patch" ]; then
+            echo "Applying patch: $(basename "$patch")"
+            patch -p1 < "$patch" || true
+        fi
+    done
+fi
+
 # Configure BusyBox for static build
 echo "Configuring BusyBox..."
 make defconfig
