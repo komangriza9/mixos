@@ -163,7 +163,8 @@ installer: toolchain-check
 # Root Filesystem
 #=============================================================================
 
-rootfs: mix-cli packages
+# rootfs depends on kernel (for modules), installer, mix-cli, and packages
+rootfs: kernel installer mix-cli packages
 	@echo -e "$(YELLOW)Building root filesystem...$(NC)"
 	@bash build/scripts/build-rootfs.sh
 	@echo -e "$(GREEN)✓ Rootfs created$(NC)"
@@ -192,7 +193,8 @@ iso-autoinstall: toolchain-check
 # VISO/SDISK/VRAM (Revolutionary Features)
 #=============================================================================
 
-initramfs: toolchain-check
+# initramfs depends on kernel (for modules) - rootfs is optional but recommended
+initramfs: kernel
 	@echo -e "$(CYAN)Building enhanced initramfs with VISO/VRAM support...$(NC)"
 	@mkdir -p $(OUTPUT_DIR)/boot
 	@bash build/scripts/build-initramfs.sh

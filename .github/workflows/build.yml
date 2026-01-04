@@ -181,7 +181,11 @@ jobs:
 
       - name: Build packages
         run: |
+          export BUILD_DIR=${{ env.BUILD_DIR }}
+          export OUTPUT_DIR=${{ env.OUTPUT_DIR }}
+          export REPO_ROOT=${{ github.workspace }}
           mkdir -p ${{ env.OUTPUT_DIR }}/packages
+          mkdir -p ${{ env.BUILD_DIR }}
           for pkg in src/packages/*/build.sh; do
             if [ -f "$pkg" ]; then
               echo "Building $(basename $(dirname $pkg))..."
