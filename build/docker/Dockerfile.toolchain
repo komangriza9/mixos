@@ -1,7 +1,8 @@
 FROM alpine:3.19
 
 LABEL maintainer="MixOS-GO Team"
-LABEL description="MixOS-GO Build Toolchain"
+LABEL description="MixOS-GO Build Toolchain - Complete build environment for make all"
+LABEL version="1.0.0"
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -19,46 +20,74 @@ RUN apk add --no-cache \
     ncurses-dev \
     # Go toolchain
     go \
-    # ISO creation tools
+    # VISO/Bootloader tools
     grub \
     grub-bios \
+    grub-efi \
     xorriso \
     squashfs-tools \
     mtools \
+    dosfstools \
+    e2fsprogs \
+    parted \
+    # NBD for advanced mounting
+    nbd \
+    # Image tools
+    qemu-utils \
+    qemu-system-x86_64 \
+    qemu-img \
     # General utilities
     curl \
     wget \
     tar \
     gzip \
     xz \
+    bzip2 \
+    zstd \
     cpio \
     git \
     bash \
     file \
     patch \
+    tree \
+    which \
     # musl development
     musl-dev \
     # SQLite for package manager
     sqlite-dev \
     sqlite-static \
     # Testing tools
-    qemu-system-x86_64 \
-    qemu-img
+    util-linux \
+    findutils \
+    # Build optimization
+    findutils-locate
 
 # Set Go environment
-ENV GOPATH=/go
-ENV PATH=$PATH:/go/bin
+ENV GOPATH=/go \
+    PATH=$PATH:/go/bin \
+    JOBS=4 \
+    BUILD_DIR=/build \
+    OUTPUT_DIR=/output \
+    REPO_ROOT=/workspace
 
 # Create working directories
-RUN mkdir -p /build /output /src
+RUN mkdir -p /build /output /workspace /go/bin
 
-WORKDIR /build
+WORKDIR /workspace
 
-# Verify tools are available
-RUN echo "Verifying toolchain..." && \
+# Copy Makefile and build scripts (optional - for validation)
+# This allows container to validate the build environment
+RUN echo "Verifying toolchain installation..." && \
     gcc --version && \
     go version && \
     grub-mkrescue --version && \
-    mksquashfs -version
+    mksquashfs -version && \
+    qemu-img --version && \
+    echo "✓ All required tools installed successfully"
+
+# Setup for make all execution
+ENV CFLAGS="-O2 -static" \
+    LDFLAGS="-static" \
+    MAKEFLAGS="-j${JOBS}"
 
 CMD ["/bin/bash"]
