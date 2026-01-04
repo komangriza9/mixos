@@ -236,16 +236,16 @@ test-mix:
 
 test-qemu:
 	@echo -e "$(YELLOW)Booting ISO in QEMU (With kernel and SDISK)...$(NC)"
-	@if [ -f $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso ] && [ -f $(OUTPUT_DIR)/boot/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
+	@if [ -f $(OUTPUT_DIR)/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ] && [ -f $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso ]; then \
 		qemu-system-x86_64 \
-			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-kernel $(OUTPUT_DIR)/vmlinuz-mixos \
 			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-cdrom $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso \
 			-m 512 \
 			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
 			-enable-kvm 2>/dev/null || \
 		qemu-system-x86_64 \
-			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-kernel $(OUTPUT_DIR)/vmlinuz-mixos \
 			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-cdrom $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso \
 			-m 512 \
@@ -276,9 +276,9 @@ test-iso:
 
 test-viso:
 	@echo -e "$(CYAN)Booting VISO with kernel and SDISK (Maximum Performance)...$(NC)"
-	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ] && [ -f $(OUTPUT_DIR)/boot/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
+	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ] && [ -f $(OUTPUT_DIR)/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
 		qemu-system-x86_64 \
-			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-kernel $(OUTPUT_DIR)/vmlinuz-mixos \
 			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio,cache=writeback,aio=threads \
 			-m 2G \
@@ -286,7 +286,7 @@ test-viso:
 			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
 			-enable-kvm 2>/dev/null || \
 		qemu-system-x86_64 \
-			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-kernel $(OUTPUT_DIR)/vmlinuz-mixos \
 			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio \
 			-m 2G \
@@ -299,9 +299,9 @@ test-viso:
 
 test-vram:
 	@echo -e "$(CYAN)Booting with VRAM mode (System runs from RAM)...$(NC)"
-	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ] && [ -f $(OUTPUT_DIR)/boot/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
+	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ] && [ -f $(OUTPUT_DIR)/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
 		qemu-system-x86_64 \
-			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-kernel $(OUTPUT_DIR)/vmlinuz-mixos \
 			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio,cache=writeback,aio=threads \
 			-m 4G \
@@ -310,7 +310,7 @@ test-vram:
 			-enable-kvm \
 			-nographic 2>/dev/null || \
 		qemu-system-x86_64 \
-			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-kernel $(OUTPUT_DIR)/vmlinuz-mixos \
 			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio \
 			-m 4G \
