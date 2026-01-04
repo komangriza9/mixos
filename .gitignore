@@ -48,3 +48,4 @@ linux-*/
 # Test coverage
 coverage.out
 coverage.html
+mix

@@ -149,13 +149,20 @@ EOF
 # Create /etc/motd
 cat > "$ROOTFS_DIR/etc/motd" << 'EOF'
 
-Welcome to MixOS-GO v1.0.0!
+🧡 Welcome to MixOS-GO v1.0.0!
 
 Quick Start:
   mix --help          Show package manager help
+  mix setup           Run interactive setup wizard
+  mix welcome         Show welcome screen
   mix list            List installed packages
   mix search <pkg>    Search for packages
   mix install <pkg>   Install a package
+  mixmagisk <cmd>     Run command as root
+
+Boot Modes:
+  VRAM=auto           Boot entire system from RAM
+  SDISK=name.viso     Boot from specific VISO
 
 Documentation: /usr/share/doc/mixos/
 
@@ -378,6 +385,9 @@ if [ -f "$OUTPUT_DIR/mix" ]; then
     echo "Installing mix package manager..."
     cp "$OUTPUT_DIR/mix" "$ROOTFS_DIR/usr/bin/mix"
     chmod +x "$ROOTFS_DIR/usr/bin/mix"
+    
+    # Create mixmagisk symlink
+    ln -sf mix "$ROOTFS_DIR/usr/bin/mixmagisk"
 fi
 
 # Copy installer if available
@@ -463,12 +473,255 @@ mkdir -p "$ROOTFS_DIR/var/lib/mix"
 # Create documentation directory
 mkdir -p "$ROOTFS_DIR/usr/share/doc/mixos"
 
+# ============================================================================
+# MixMagisk Setup
+# ============================================================================
+echo "Setting up MixMagisk..."
+
+# Create mixmagisk directories
+mkdir -p "$ROOTFS_DIR/etc/mixmagisk/policy.d"
+mkdir -p "$ROOTFS_DIR/var/log"
+mkdir -p "$ROOTFS_DIR/run/mixmagisk"
+
+# Create default mixmagisk config
+cat > "$ROOTFS_DIR/etc/mixmagisk/config" << 'EOF'
+# MixMagisk Configuration
+# MixOS Root Management System
+
+[general]
+version = 1.0.0
+log_level = info
+session_timeout = 300
+
+[security]
+require_password = true
+allow_root_shell = true
+audit_all_commands = true
+
+[defaults]
+default_policy = deny
+allow_wheel_group = true
+allow_mixmagisk_group = true
+EOF
+
+# Create root user policy
+cat > "$ROOTFS_DIR/etc/mixmagisk/policy.d/root.policy" << 'EOF'
+# MixMagisk Policy for root
+# Root user always has full access
+
+[user]
+name = root
+allow_root = true
+require_pin = false
+log_level = info
+timeout = 0
+
+[commands]
+allow = *
+
+[restrictions]
+# No restrictions for root
+EOF
+
+# Create default user policy template
+cat > "$ROOTFS_DIR/etc/mixmagisk/policy.d/default.policy.template" << 'EOF'
+# MixMagisk Policy Template
+# Copy this file to <username>.policy and customize
+
+[user]
+name = USERNAME
+allow_root = true
+require_pin = false
+log_level = info
+timeout = 300
+
+[commands]
+# Allow all commands (use specific patterns to restrict)
+allow = *
+
+[restrictions]
+# Deny dangerous commands
+deny = rm -rf /
+deny = dd if=/dev/zero of=/dev/sda
+deny = mkfs.*
+EOF
+
+# ============================================================================
+# First Boot Setup
+# ============================================================================
+echo "Creating first boot setup..."
+
+# Create first boot script
+cat > "$ROOTFS_DIR/etc/init.d/S01firstboot" << 'EOF'
+#!/bin/sh
+# MixOS-GO First Boot Setup
+
+FIRSTBOOT_FLAG="/var/lib/mix/.firstboot_done"
+
+if [ -f "$FIRSTBOOT_FLAG" ]; then
+    exit 0
+fi
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║     🧡 Welcome to MixOS-GO First Boot!                       ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Check boot mode
+if grep -q "mixos.mode=installer" /proc/cmdline 2>/dev/null; then
+    echo "Installer mode detected..."
+    echo "Run 'mix setup' to start the setup wizard"
+fi
+
+# Check VRAM mode
+if grep -q "VRAM=" /proc/cmdline 2>/dev/null; then
+    mkdir -p /run/mixos
+    touch /run/mixos/vram
+    echo "⚡ VRAM mode enabled - System running from RAM"
+fi
+
+# Create firstboot flag
+mkdir -p /var/lib/mix
+touch "$FIRSTBOOT_FLAG"
+
+echo ""
+echo "Run 'mix welcome' for an interactive welcome screen"
+echo "Run 'mix setup' to configure your system"
+echo ""
+EOF
+chmod +x "$ROOTFS_DIR/etc/init.d/S01firstboot"
+
+# ============================================================================
+# Profile Scripts
+# ============================================================================
+echo "Creating profile scripts..."
+
+# Create mixos profile script
+cat > "$ROOTFS_DIR/etc/profile.d/mixos.sh" << 'EOF'
+# MixOS-GO Profile Script
+
+# Check if running in VRAM mode
+if [ -f /run/mixos/vram ]; then
+    export MIXOS_VRAM=1
+    export PS1_PREFIX="⚡"
+fi
+
+# Set MixOS-specific environment
+export MIXOS_VERSION="1.0.0"
+export MIXOS_HOME="/var/lib/mix"
+
+# Aliases for MixOS commands
+alias setup='mix setup'
+alias welcome='mix welcome'
+alias su='mixmagisk -i'
+
+# Show welcome message on first login
+if [ ! -f "$HOME/.mixos_welcomed" ] && [ -t 0 ]; then
+    echo ""
+    echo "🧡 Welcome to MixOS-GO!"
+    echo "   Run 'mix welcome' for the full welcome experience"
+    echo "   Run 'mix help' for available commands"
+    echo ""
+    touch "$HOME/.mixos_welcomed" 2>/dev/null || true
+fi
+EOF
+
+# ============================================================================
+# User Management
+# ============================================================================
+echo "Setting up user management..."
+
+# Create passwd file
+cat > "$ROOTFS_DIR/etc/passwd" << 'EOF'
+root:x:0:0:root:/root:/bin/sh
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+EOF
+
+# Create shadow file (root with no password initially)
+cat > "$ROOTFS_DIR/etc/shadow" << 'EOF'
+root::0:0:99999:7:::
+nobody:*:0:0:99999:7:::
+EOF
+chmod 600 "$ROOTFS_DIR/etc/shadow"
+
+# Create group file
+cat > "$ROOTFS_DIR/etc/group" << 'EOF'
+root:x:0:
+wheel:x:10:
+mixmagisk:x:100:
+users:x:100:
+nobody:x:65534:
+EOF
+
+# Create gshadow file
+cat > "$ROOTFS_DIR/etc/gshadow" << 'EOF'
+root:::
+wheel:::
+mixmagisk:::
+users:::
+nobody:::
+EOF
+chmod 600 "$ROOTFS_DIR/etc/gshadow"
+
+# ============================================================================
+# VRAM/VISO Support Files
+# ============================================================================
+echo "Creating VRAM/VISO support files..."
+
+mkdir -p "$ROOTFS_DIR/run/mixos"
+
+# Create VRAM status script
+cat > "$ROOTFS_DIR/usr/bin/vram-status" << 'EOF'
+#!/bin/sh
+# MixOS VRAM Status Script
+
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║     MixOS VRAM Status                                        ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Check if VRAM mode is active
+if [ -f /run/mixos/vram ]; then
+    echo "  Mode:     ⚡ VRAM (Active)"
+else
+    echo "  Mode:     💿 Standard"
+fi
+
+# Memory info
+MEM_TOTAL=$(awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo)
+MEM_FREE=$(awk '/MemAvailable/ {printf "%.0f", $2/1024}' /proc/meminfo)
+MEM_USED=$((MEM_TOTAL - MEM_FREE))
+
+echo "  RAM:      ${MEM_USED}MB / ${MEM_TOTAL}MB"
+
+# Disk info
+if [ -f /run/mixos/vram ]; then
+    TMPFS_SIZE=$(df -h /run 2>/dev/null | tail -1 | awk '{print $2}')
+    TMPFS_USED=$(df -h /run 2>/dev/null | tail -1 | awk '{print $3}')
+    echo "  VRAM:     ${TMPFS_USED} / ${TMPFS_SIZE}"
+fi
+
+echo ""
+EOF
+chmod +x "$ROOTFS_DIR/usr/bin/vram-status"
+
 # Calculate rootfs size
 ROOTFS_SIZE=$(du -sh "$ROOTFS_DIR" | cut -f1)
 
 echo ""
-echo "=== Root Filesystem Build Complete ==="
-echo "Rootfs: $ROOTFS_DIR ($ROOTFS_SIZE)"
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║     Root Filesystem Build Complete!                          ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "  Rootfs: $ROOTFS_DIR ($ROOTFS_SIZE)"
+echo ""
+echo "  Features:"
+echo "    ✓ BusyBox utilities"
+echo "    ✓ MixMagisk root management"
+echo "    ✓ VRAM/VISO support"
+echo "    ✓ First boot setup"
+echo "    ✓ User management"
 echo ""
 echo "Directory structure:"
 ls -la "$ROOTFS_DIR"

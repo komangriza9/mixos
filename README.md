@@ -1,6 +1,14 @@
 # MixOS-GO v1.0.0
 
-A minimal, security-hardened Linux distribution with a professional package manager written in Go.
+A minimal, security-hardened Linux distribution with revolutionary boot technologies and a professional package manager written in Go.
+
+## 🚀 Revolutionary Features
+
+| Feature | Description | Benefit |
+|---------|-------------|---------|
+| **VISO** | Virtual ISO format | Replaces CDROM, optimized for virtio |
+| **SDISK** | Selection Disk boot | Advanced boot mechanism |
+| **VRAM** | Virtual RAM mode | Boot entire system from RAM |
 
 ## Features
 
@@ -9,13 +17,14 @@ A minimal, security-hardened Linux distribution with a professional package mana
 - **Security Hardened**: Kernel hardening, iptables firewall, SSH key-only auth
 - **Professional Package Manager**: `mix` CLI with dependency resolution
 - **Modern Stack**: Linux 6.6.8 kernel, musl libc, BusyBox utilities
+- **VISO/SDISK/VRAM**: Revolutionary boot technologies (unique to MixOS-GO!)
 
 ## Quick Start
 
 ### Building
 
 ```bash
-# Build everything
+# Build everything (including VISO)
 make all
 
 # Or build individual components
@@ -23,7 +32,9 @@ make kernel      # Build Linux kernel
 make mix-cli     # Build package manager
 make packages    # Build packages
 make rootfs      # Build root filesystem
-make iso         # Build bootable ISO
+make initramfs   # Build enhanced initramfs with VISO/VRAM support
+make viso        # Build VISO (Virtual ISO) image
+make iso         # Build traditional bootable ISO
 ```
 
 ### Unattended / Automated ISO
@@ -44,8 +55,33 @@ INSTALL_CONFIG=/path/to/install.yaml make iso
 # Run unit tests
 make test
 
-# Boot in QEMU
+# Boot traditional ISO in QEMU
 make test-qemu
+
+# Boot VISO with virtio (Maximum Performance)
+make test-viso
+
+# Boot with VRAM mode (System runs from RAM)
+make test-vram
+```
+
+### VISO Boot (Recommended)
+
+```bash
+# Maximum performance boot
+qemu-system-x86_64 \
+    -drive file=artifacts/mixos-go-v1.0.0.viso,format=qcow2,if=virtio,cache=writeback,aio=threads \
+    -m 2G \
+    -cpu host \
+    -enable-kvm \
+    -nographic
+
+# With VRAM mode (requires 4GB+ RAM)
+qemu-system-x86_64 \
+    -drive file=artifacts/mixos-go-v1.0.0.viso,format=qcow2,if=virtio \
+    -m 4G \
+    -append "console=ttyS0 VRAM=auto" \
+    -nographic
 ```
 
 ### Using the Package Manager
@@ -70,6 +106,25 @@ mix remove nginx
 mix info openssh
 ```
 
+### VISO/VRAM Commands
+
+```bash
+# Show VRAM status
+mix vram status
+
+# Enable VRAM mode for next boot
+mix vram enable
+
+# Show VISO information
+mix viso info
+
+# List available VISO images
+mix viso list
+
+# Show boot command for VISO
+mix viso boot mixos-go-v1.0.0.viso --vram
+```
+
 ## System Requirements
 
 ### Build Requirements
@@ -84,7 +139,9 @@ mix info openssh
 ### Runtime Requirements
 
 - x86_64 CPU
-- 512MB RAM (minimum)
+- 512MB RAM (minimum for standard mode)
+- 2GB RAM (minimum for VRAM mode)
+- 4GB RAM (recommended for VRAM mode)
 - BIOS or UEFI boot
 
 ## Directory Structure

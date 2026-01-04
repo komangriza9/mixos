@@ -907,7 +907,52 @@ CONFIG_ARCH_STACKWALK=y
 CONFIG_SBITMAP=y
 CONFIG_STRING_SELFTEST=m
 
+# ============================================================================
+# MixMagisk Support - Enhanced Security and Capabilities
+# ============================================================================
+
+# Capabilities for mixmagisk root management
+CONFIG_AUDIT_ARCH=y
+CONFIG_AUDITSYSCALL=y
+
+# Process capabilities
+CONFIG_PROC_EVENTS=y
+
+# User namespace for container-like isolation
+CONFIG_USER_NS=y
+
+# Secure computing mode
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+
+# Control groups for resource management
+CONFIG_CGROUP_DEVICE=y
+CONFIG_CGROUP_FREEZER=y
+CONFIG_CGROUP_PIDS=y
+CONFIG_CGROUP_RDMA=y
+
+# BPF for advanced security policies
+CONFIG_BPF=y
+CONFIG_BPF_SYSCALL=y
+CONFIG_BPF_JIT=y
+CONFIG_BPF_JIT_ALWAYS_ON=y
+CONFIG_BPF_LSM=y
+
+# Kernel hardening
+CONFIG_STACKPROTECTOR=y
+CONFIG_STACKPROTECTOR_STRONG=y
+CONFIG_VMAP_STACK=y
+CONFIG_THREAD_INFO_IN_TASK=y
+CONFIG_RANDOMIZE_BASE=y
+CONFIG_RANDOMIZE_MEMORY=y
+
+# Memory protection
+CONFIG_STRICT_KERNEL_RWX=y
+CONFIG_STRICT_MODULE_RWX=y
+
+# ============================================================================
 # Disable unnecessary features for server
+# ============================================================================
 # CONFIG_SOUND is not set
 # CONFIG_DRM is not set
 # CONFIG_FB is not set
