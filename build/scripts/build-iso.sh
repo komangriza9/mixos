@@ -119,9 +119,10 @@ done
 # Find and mount the live filesystem
 echo "Searching for live filesystem..."
 
-# Wait for devices
-sleep 2
+# Wait for devices to settle (give CD-ROM more time to appear)
+sleep 15
 
+mkdir -p /mnt/cdrom /mnt/root
 # Try to find the squashfs
 mkdir -p /mnt/cdrom /mnt/root /mnt/vram
 
@@ -132,6 +133,30 @@ for dev in /dev/vda /dev/vdb; do
     fi
 done
 
+# Helper to attempt mounting a device as ISO9660 with retries
+try_mount_iso() {
+    local dev="$1"
+    local i
+    for i in 1 2 3 4 5; do
+        if [ -b "$dev" ]; then
+            echo "Trying to mount $dev (attempt $i)..."
+            if mount -t iso9660 -o ro "$dev" /mnt/cdrom; then
+                echo "Mounted $dev -> /mnt/cdrom"
+                ls -l /mnt/cdrom || true
+                return 0
+            else
+                echo "Mount failed for $dev (attempt $i)" >&2
+            fi
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+# Try common CD-ROM and block devices
+for dev in /dev/sr0 /dev/cdrom /dev/hdc /dev/scd0 /dev/vda /dev/vdb /dev/sda /dev/sdb; do
+    if try_mount_iso "$dev"; then
+        break
 # Try common CD-ROM devices
 if [ ! -f /mnt/cdrom/live/filesystem.squashfs ]; then
     for dev in /dev/sr0 /dev/cdrom /dev/hdc /dev/scd0; do
@@ -159,6 +184,10 @@ for path in /mnt/cdrom/live/filesystem.squashfs /mnt/cdrom/rootfs/rootfs.squashf
     fi
 done
 
+# If mounted, look for filesystem.squashfs; also scan the mounted tree
+if [ -d /mnt/cdrom ] && [ -f /mnt/cdrom/live/filesystem.squashfs ]; then
+    echo "Found live filesystem at /mnt/cdrom/live/filesystem.squashfs, mounting..."
+    mount -t squashfs -o ro /mnt/cdrom/live/filesystem.squashfs /mnt/root
 # Mount squashfs
 if [ -n "$SQUASHFS_PATH" ]; then
     echo "Found live filesystem: $SQUASHFS_PATH"
@@ -182,6 +211,18 @@ if [ -n "$SQUASHFS_PATH" ]; then
         mount -t squashfs -o ro "$SQUASHFS_PATH" /mnt/root
     fi
 else
+    # Try to find filesystem.squashfs anywhere under /mnt/cdrom if mounted
+    if [ -d /mnt/cdrom ]; then
+        fs=$(find /mnt/cdrom -maxdepth 3 -type f -name filesystem.squashfs 2>/dev/null | head -n1 || true)
+        if [ -n "$fs" ]; then
+            echo "Found live filesystem at $fs, mounting..."
+            mount -t squashfs -o ro "$fs" /mnt/root
+        fi
+    fi
+fi
+
+# If mounting didn't succeed, fall back to initramfs root
+if [ ! -d /mnt/root ] || [ -z "$(ls -A /mnt/root 2>/dev/null)" ]; then
     echo "Live filesystem not found, using initramfs as root"
     exec /sbin/init
 fi
@@ -271,6 +312,8 @@ set default=0
 set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
 
+menuentry "MixOS-GO v1.0.0" {
+    linux /boot/vmlinuz quiet console=tty0 console=ttyS0,115200
 # Custom theme
 insmod gfxterm
 insmod png
@@ -295,17 +338,36 @@ menuentry "🔧 MixOS-GO v$VERSION (Verbose)" {
     initrd /boot/initramfs.img
 }
 
+menuentry "MixOS-GO v1.0.0 (verbose)" {
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200
 menuentry "🛠️ MixOS-GO v$VERSION (Recovery Shell)" {
     linux /boot/vmlinuz console=ttyS0 single init=/bin/sh
     initrd /boot/initramfs.img
 }
 
+menuentry "MixOS-GO v1.0.0 (recovery)" {
+    linux /boot/vmlinuz single init=/bin/sh console=tty0 console=ttyS0,115200
+    initrd /boot/initramfs.img
+}
+
+# Automatic installer entry (uses /etc/mixos/install.yaml on the live image)
+menuentry "MixOS-GO Automatic Install" {
+    linux /boot/vmlinuz console=tty0 console=ttyS0,115200 mixos.autoinstall=1 mixos.config=/etc/mixos/install.yaml
 menuentry "📖 MixOS-GO v$VERSION (Debug Mode)" {
     linux /boot/vmlinuz console=ttyS0 debug
     initrd /boot/initramfs.img
 }
 EOF
 
+# Create ISO
+echo "Creating ISO image..."
+# Ensure filesystem buffers are flushed so xorriso/grub see final files
+sync
+
+# Prefer grub-mkrescue (works on many systems). If it fails or to avoid
+# subtle truncation issues when mixing internal temp dirs, fall back to an
+# explicit xorriso invocation that grafts exact files from $ISO_DIR.
+if grub-mkrescue -o "$OUTPUT_DIR/$ISO_NAME" "$ISO_DIR" \
 log_ok "GRUB configuration created"
 
 # ============================================================================
@@ -315,6 +377,45 @@ log_info "Creating ISO image..."
 
 grub-mkrescue -o "$OUTPUT_DIR/$ISO_NAME" "$ISO_DIR" \
     --product-name="MixOS-GO" \
+    --product-version="1.0.0" 2>/dev/null; then
+    true
+else
+    echo "grub-mkrescue failed or unavailable; using explicit xorriso graft-points..."
+    # Use explicit graft-points so we control exact source files copied into the ISO
+    if command -v xorriso >/dev/null 2>&1; then
+        xorriso -as mkisofs \
+            -o "$OUTPUT_DIR/$ISO_NAME" \
+            -isohybrid-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
+            -c boot/boot.cat \
+            -b boot/grub/i386-pc/eltorito.img \
+            -no-emul-boot \
+            -boot-load-size 4 \
+            -boot-info-table \
+            --grub2-boot-info \
+            --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
+            -eltorito-alt-boot \
+            -e boot/grub/efi.img \
+            -no-emul-boot \
+            -isohybrid-gpt-basdat \
+            -V "MIXOS_GO" \
+            -graft-points \
+                /boot/initramfs.img="$ISO_DIR/boot/initramfs.img" \
+                /boot/vmlinuz="$ISO_DIR/boot/vmlinuz" \
+                /boot/grub/grub.cfg="$ISO_DIR/boot/grub/grub.cfg" \
+                /live="$ISO_DIR/live" \
+            2>/dev/null || {
+                echo "xorriso fallback failed; creating basic tarball instead..."
+                cd "$ISO_DIR"
+                tar -czf "$OUTPUT_DIR/mixos-go-v1.0.0.tar.gz" .
+                echo "Created tarball instead: $OUTPUT_DIR/mixos-go-v1.0.0.tar.gz"
+            }
+    else
+        echo "xorriso not installed; creating basic tarball instead..."
+        cd "$ISO_DIR"
+        tar -czf "$OUTPUT_DIR/mixos-go-v1.0.0.tar.gz" .
+        echo "Created tarball instead: $OUTPUT_DIR/mixos-go-v1.0.0.tar.gz"
+    fi
+fi
     --product-version="$VERSION" \
     2>/dev/null || {
     # Fallback method using xorriso directly

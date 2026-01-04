@@ -38,10 +38,21 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Run tests
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ${{ github.workspace }}/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Run vet and tests
         working-directory: src/mix-cli
         run: |
           go mod tidy
+          go vet ./...
           go test -v ./...
 
       - name: Build mix binary
@@ -69,14 +80,16 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential \
             bc \
             bison \
             flex \
             libelf-dev \
             libssl-dev \
-            libncurses-dev
+            libncurses-dev \
+            git \
+            cpio
 
       - name: Cache kernel source
         uses: actions/cache@v4
@@ -119,18 +132,73 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
+          sudo apt-get install -y --no-install-recommends \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            grub-common \
+            xorriso \
             squashfs-tools \
+            mtools \
             cpio \
-            gzip \
-            xz-utils
+            git \
+            qemu-system-x86
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ${{ github.workspace }}/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Download mix-cli
         uses: actions/download-artifact@v4
         with:
           name: mix-cli
           path: artifacts/
+
+      - name: Build mix CLI
+        working-directory: src/mix-cli
+        run: |
+          go mod tidy
+          CGO_ENABLED=1 go build -ldflags="-s -w" -o ../../artifacts/mix .
+
+      - name: Build installer binary
+        working-directory: src/installer
+        run: |
+          mkdir -p ../../artifacts
+          go mod tidy
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../../artifacts/mixos-install .
+          ls -lah ../../artifacts || true
+
+      - name: Smoke check installer
+        run: |
+          if [ -f artifacts/mixos-install ]; then
+            chmod +x artifacts/mixos-install
+            artifacts/mixos-install --version || (echo 'installer smoke failed' && exit 1)
+          else
+            echo "Installer binary not found"; exit 1
+          fi
+
+      - name: Autoinstall dry-run
+        run: |
+          if [ -f artifacts/mixos-install ]; then
+            chmod +x artifacts/mixos-install
+            artifacts/mixos-install --config packaging/install.yaml --dry-run || (echo 'installer autoinstall dry-run failed' && exit 1)
+          else
+            echo "Installer binary not found"; exit 1
+          fi
+
+      - name: Build packages
+        run: |
+          mkdir -p artifacts/packages
+          for pkg in src/packages/*/build.sh; do
+            if [ -f "$pkg" ]; then
+              bash "$pkg" || true
+            fi
+          done
 
       - name: Build rootfs
         run: |
@@ -269,6 +337,32 @@ jobs:
           export OUTPUT_DIR=${{ github.workspace }}/artifacts
           export VERSION=${{ env.VERSION }}
           bash build/scripts/build-iso.sh
+
+      - name: Smoke boot ISO (QEMU)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+          mkdir -p artifacts
+          ISO=$(ls artifacts/*.iso | head -n1 || true)
+          if [ -z "$ISO" ]; then
+            echo "No ISO found in artifacts/; failing smoke boot"; exit 1
+          fi
+          timeout 90s qemu-system-x86_64 -cdrom "$ISO" -m 512 -nographic -serial file:./artifacts/boot.log || true
+          if grep -qi 'mixos login' artifacts/boot.log || grep -qi 'MixOS-GO' artifacts/boot.log; then
+            echo "ISO boot smoke test: OK"
+          else
+            echo "ISO boot smoke test: FAILED"
+            echo "==== Serial log (head) ===="
+            sed -n '1,200p' artifacts/boot.log || true
+            exit 1
+          fi
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          for f in *.iso *.tar.gz; do
+            [ -f "$f" ] && sha256sum "$f" > "$f.sha256"
+          done
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
