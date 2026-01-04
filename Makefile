@@ -4,7 +4,7 @@
 SHELL := /bin/bash
 .PHONY: all clean toolchain kernel mix-cli installer packages rootfs initramfs iso test help
 .PHONY: viso sdisk vram modules-dep test test-mix test-qemu test-iso test-viso test-vram test-sdisk
-.PHONY: toolchain-check kernel-config mix-cli-static iso-autoinstall info
+.PHONY: toolchain-check kernel-config mix-cli-static iso-autoinstall info dev-shell clean-all checksums
 
 # Configuration
 VERSION := 1.0.0
@@ -75,7 +75,8 @@ help:
 	@echo "  test-vram    - Boot with VRAM mode enabled"
 	@echo ""
 	@echo "Utility targets:"
-	@echo "  toolchain    - Build Docker toolchain image"
+	@echo "  toolchain    - Build Docker build environment (mixos-go-build:latest)"
+	@echo "  dev-shell    - Launch interactive development shell in Docker"
 	@echo "  toolchain-check - Verify build tools are available"
 	@echo "  info         - Show build configuration"
 	@echo ""
@@ -85,9 +86,11 @@ help:
 #=============================================================================
 
 toolchain:
-	@echo -e "$(YELLOW)Building Docker toolchain...$(NC)"
-	docker build -t mixos-toolchain -f build/docker/Dockerfile.toolchain build/docker/
-	@echo -e "$(GREEN)✓ Toolchain ready$(NC)"
+	@echo -e "$(YELLOW)Building Docker build environment...$(NC)"
+	docker build -t mixos-go-build:latest -f build/docker/Dockerfile.toolchain .
+	@echo -e "$(GREEN)✓ Build environment ready$(NC)"
+	@echo "Use 'make dev-shell' to enter the environment or:"
+	@echo "  docker run --rm -it --privileged -v \$$(pwd):/workspace -w /workspace mixos-go-build:latest bash -c 'make all'"
 
 toolchain-check:
 	@echo -e "$(YELLOW)Checking build tools...$(NC)"
@@ -339,17 +342,19 @@ clean:
 
 clean-all: clean
 	rm -rf $(BUILD_DIR)
-	docker rmi mixos-toolchain 2>/dev/null || true
+	docker rmi mixos-go-build:latest 2>/dev/null || true
 
 #=============================================================================
 # Development helpers
 #=============================================================================
 
-dev-shell:
-	@docker run -it --rm \
+dev-shell: toolchain
+	@echo -e "$(YELLOW)Launching development shell in Docker...$(NC)"
+	docker run -it --rm \
 		-v $(CURDIR):/workspace \
 		-w /workspace \
-		mixos-toolchain \
+		--privileged \
+		mixos-go-build:latest \
 		/bin/bash
 
 checksums:
