@@ -2,9 +2,9 @@
 # Version 1.0.0 - VISO/SDISK/VRAM Support
 
 SHELL := /bin/bash
-.PHONY: all clean toolchain kernel mix-cli installer packages rootfs iso test help
-.PHONY: all clean toolchain kernel mix-cli packages rootfs iso test help
-.PHONY: initramfs viso sdisk vram modules-dep test-vram test-viso
+.PHONY: all clean toolchain kernel mix-cli installer packages rootfs initramfs iso test help
+.PHONY: viso sdisk vram modules-dep test test-mix test-qemu test-iso test-viso test-vram test-sdisk
+.PHONY: toolchain-check kernel-config mix-cli-static iso-autoinstall info
 
 # Configuration
 VERSION := 1.0.0
