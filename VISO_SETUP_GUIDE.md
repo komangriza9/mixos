@@ -32,8 +32,8 @@ sudo make viso
 Use privileged Docker container with full bootloader support:
 
 ```bash
-# Build Docker image
-docker build -f Dockerfile.build -t mixos-go-build:latest .
+# Build Docker image (from build/docker/Dockerfile.toolchain)
+docker build -f build/docker/Dockerfile.toolchain -t mixos-go-build:latest .
 
 # Run build in container
 docker run --rm -it \
@@ -41,7 +41,7 @@ docker run --rm -it \
   -v $(pwd):/workspace \
   -w /workspace \
   mixos-go-build:latest \
-  bash -c "make viso"
+  bash -c "make all"
 ```
 
 **Advantages:**
