@@ -115,12 +115,49 @@ jobs:
             artifacts/modules-mixos.tar.gz
 
   # ============================================================================
+  # Build Packages
+  # ============================================================================
+  build-packages:
+    name: Build Packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            git
+
+      - name: Build packages
+        run: |
+          mkdir -p artifacts/packages
+          for pkg in src/packages/*/build.sh; do
+            if [ -f "$pkg" ]; then
+              echo "Building $(basename $(dirname $pkg))..."
+              bash "$pkg" || true
+            fi
+          done
+
+      - name: List packages
+        run: |
+          echo "Built packages:"
+          ls -lah artifacts/packages/ 2>/dev/null || echo "No packages built"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/packages/
+
+  # ============================================================================
   # Build Rootfs
   # ============================================================================
   build-rootfs:
     name: Build Root Filesystem
     runs-on: ubuntu-latest
-    needs: [test-mix-cli, build-kernel]
+    needs: [test-mix-cli, build-kernel, build-packages]
     steps:
       - uses: actions/checkout@v4
 
@@ -159,6 +196,12 @@ jobs:
           name: mix-cli
           path: artifacts/
 
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: artifacts/packages/
+
       - name: Build mix CLI
         working-directory: src/mix-cli
         run: |
@@ -190,15 +233,6 @@ jobs:
           else
             echo "Installer binary not found"; exit 1
           fi
-
-      - name: Build packages
-        run: |
-          mkdir -p artifacts/packages
-          for pkg in src/packages/*/build.sh; do
-            if [ -f "$pkg" ]; then
-              bash "$pkg" || true
-            fi
-          done
 
       - name: Build rootfs
         run: |
@@ -275,11 +309,14 @@ jobs:
 
       - name: Prepare build
         run: |
-          mkdir -p /tmp/mixos-build artifacts/boot
+          mkdir -p /tmp/mixos-build artifacts/boot artifacts/packages
           cp -r downloads/rootfs/* /tmp/mixos-build/rootfs/ 2>/dev/null || true
           cp downloads/initramfs/* artifacts/boot/ 2>/dev/null || true
           cp downloads/kernel/* artifacts/ 2>/dev/null || true
           cp downloads/kernel/* artifacts/boot/ 2>/dev/null || true
+          cp -r downloads/packages/* artifacts/packages/ 2>/dev/null || true
+          echo "Packages available:"
+          ls -lah artifacts/packages/ 2>/dev/null || echo "No packages found"
 
       - name: Build VISO
         run: |
@@ -325,11 +362,14 @@ jobs:
 
       - name: Prepare build
         run: |
-          mkdir -p /tmp/mixos-build artifacts/boot
+          mkdir -p /tmp/mixos-build artifacts/boot artifacts/packages
           cp -r downloads/rootfs/* /tmp/mixos-build/rootfs/ 2>/dev/null || true
           cp downloads/initramfs/* artifacts/boot/ 2>/dev/null || true
           cp downloads/kernel/* artifacts/ 2>/dev/null || true
           cp downloads/kernel/* artifacts/boot/ 2>/dev/null || true
+          cp -r downloads/packages/* artifacts/packages/ 2>/dev/null || true
+          echo "Packages available:"
+          ls -lah artifacts/packages/ 2>/dev/null || echo "No packages found"
 
       - name: Build ISO
         run: |

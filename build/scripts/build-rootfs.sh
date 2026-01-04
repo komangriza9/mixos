@@ -390,6 +390,27 @@ if [ -f "$OUTPUT_DIR/mix" ]; then
     ln -sf mix "$ROOTFS_DIR/usr/bin/mixmagisk"
 fi
 
+# Copy packages if available
+if [ -d "$OUTPUT_DIR/packages" ] && [ "$(ls -A $OUTPUT_DIR/packages)" ]; then
+    echo "Installing packages..."
+    mkdir -p "$ROOTFS_DIR/var/lib/mix/packages"
+    
+    # Copy all .mixpkg files to the package cache
+    for pkg in "$OUTPUT_DIR/packages"/*.mixpkg; do
+        if [ -f "$pkg" ]; then
+            pkg_name=$(basename "$pkg")
+            echo "  Adding package: $pkg_name"
+            cp "$pkg" "$ROOTFS_DIR/var/lib/mix/packages/"
+        fi
+    done
+    
+    # List installed packages
+    echo "Available packages:"
+    ls -lah "$ROOTFS_DIR/var/lib/mix/packages/" 2>/dev/null || true
+else
+    echo "No packages found - mix will work in offline mode"
+fi
+
 # Copy installer if available
 if [ -f "$OUTPUT_DIR/mixos-install" ]; then
     echo "Installing mixos installer..."
