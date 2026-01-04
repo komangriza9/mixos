@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -329,12 +328,4 @@ func runVramInfo(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("")
 	return nil
-}
-
-// Helper function to run shell commands
-func runCommand(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
