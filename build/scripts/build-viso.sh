@@ -12,7 +12,11 @@
 
 set -e
 
-# Configuration
+# Standardized directory structure
+# BUILD_DIR: temporary build files
+# BUILD_DIR/rootfs: the rootfs being built
+# OUTPUT_DIR: final artifacts
+# OUTPUT_DIR/boot: kernel and initramfs
 BUILD_DIR="${BUILD_DIR:-$(pwd)/.tmp/mixos-build}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts}"
 REPO_ROOT="${REPO_ROOT:-$(pwd)}"
@@ -59,8 +63,20 @@ mkdir -p "$BUILD_DIR" "$OUTPUT_DIR"
 log_step "Verifying prerequisites..."
 
 ROOTFS_DIR="$BUILD_DIR/rootfs"
-KERNEL_PATH="$OUTPUT_DIR/boot/vmlinuz-mixos"
-INITRAMFS_PATH="$OUTPUT_DIR/boot/initramfs-mixos.img"
+
+# Check for kernel - look in both boot/ and root of OUTPUT_DIR
+KERNEL_PATH=""
+if [ -f "$OUTPUT_DIR/boot/vmlinuz-mixos" ]; then
+    KERNEL_PATH="$OUTPUT_DIR/boot/vmlinuz-mixos"
+elif [ -f "$OUTPUT_DIR/vmlinuz-mixos" ]; then
+    KERNEL_PATH="$OUTPUT_DIR/vmlinuz-mixos"
+fi
+
+# Check for initramfs
+INITRAMFS_PATH=""
+if [ -f "$OUTPUT_DIR/boot/initramfs-mixos.img" ]; then
+    INITRAMFS_PATH="$OUTPUT_DIR/boot/initramfs-mixos.img"
+fi
 
 # Check for rootfs
 if [ ! -d "$ROOTFS_DIR" ]; then
@@ -70,15 +86,19 @@ if [ ! -d "$ROOTFS_DIR" ]; then
 fi
 
 # Check for kernel (optional - can use host kernel for testing)
-if [ ! -f "$KERNEL_PATH" ]; then
-    log_warn "Kernel not found at $KERNEL_PATH"
+if [ -z "$KERNEL_PATH" ]; then
+    log_warn "Kernel not found at $OUTPUT_DIR/boot/vmlinuz-mixos or $OUTPUT_DIR/vmlinuz-mixos"
     log_info "Will create VISO without kernel (use host kernel for testing)"
+else
+    log_ok "Found kernel at $KERNEL_PATH"
 fi
 
 # Check for initramfs
-if [ ! -f "$INITRAMFS_PATH" ]; then
-    log_warn "Initramfs not found at $INITRAMFS_PATH"
+if [ -z "$INITRAMFS_PATH" ]; then
+    log_warn "Initramfs not found at $OUTPUT_DIR/boot/initramfs-mixos.img"
     log_info "Run 'make initramfs' first for full VISO support"
+else
+    log_ok "Found initramfs at $INITRAMFS_PATH"
 fi
 
 # Check for required tools
@@ -126,12 +146,14 @@ rm -rf "$VISO_BUILD"
 mkdir -p "$VISO_BUILD"/{boot,rootfs,config,tools}
 
 # Copy boot files
-if [ -f "$KERNEL_PATH" ]; then
+if [ -n "$KERNEL_PATH" ] && [ -f "$KERNEL_PATH" ]; then
     cp "$KERNEL_PATH" "$VISO_BUILD/boot/"
+    log_ok "Kernel copied to VISO"
 fi
 
-if [ -f "$INITRAMFS_PATH" ]; then
+if [ -n "$INITRAMFS_PATH" ] && [ -f "$INITRAMFS_PATH" ]; then
     cp "$INITRAMFS_PATH" "$VISO_BUILD/boot/"
+    log_ok "Initramfs copied to VISO"
 fi
 
 # Copy rootfs

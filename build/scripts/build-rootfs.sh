@@ -4,8 +4,17 @@
 
 set -e
 
+# Standardized directory structure
+# BUILD_DIR: temporary build files
+# OUTPUT_DIR: final artifacts
+# OUTPUT_DIR/boot: kernel and initramfs
+# OUTPUT_DIR/packages: built packages
+# OUTPUT_DIR/mix: mix CLI binary
+# OUTPUT_DIR/mixos-install: installer binary
+# OUTPUT_DIR/modules-mixos.tar.gz: kernel modules
 BUILD_DIR="${BUILD_DIR:-$(pwd)/.tmp/mixos-build}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts}"
+REPO_ROOT="${REPO_ROOT:-$(pwd)}"
 ROOTFS_DIR="$BUILD_DIR/rootfs"
 BUSYBOX_VERSION="1.36.1"
 BUSYBOX_URL="https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2"
@@ -14,10 +23,11 @@ echo "=== MixOS-GO Root Filesystem Build ==="
 echo "Build Directory: $BUILD_DIR"
 echo "Rootfs Directory: $ROOTFS_DIR"
 echo "Output Directory: $OUTPUT_DIR"
+echo "Repo Root: $REPO_ROOT"
 echo ""
 
 # Create directories
-mkdir -p "$BUILD_DIR" "$OUTPUT_DIR"
+mkdir -p "$BUILD_DIR" "$OUTPUT_DIR/boot" "$OUTPUT_DIR/packages"
 
 # Clean previous rootfs
 rm -rf "$ROOTFS_DIR"
@@ -48,8 +58,7 @@ if [ ! -d "$BUSYBOX_SRC" ]; then
     tar -xf "$BUSYBOX_TARBALL" -C "$BUILD_DIR"
 fi
 
-# Get the repository root directory (where the script was called from)
-REPO_ROOT="$(pwd)"
+# Get the patch directory from repo root
 PATCH_DIR="$REPO_ROOT/build/patches"
 
 echo "Repository root: $REPO_ROOT"
@@ -369,30 +378,43 @@ EOF
 chmod +x "$ROOTFS_DIR/etc/init.d/S50sshd"
 
 # Apply security hardening
-if [ -f "$(pwd)/configs/security/hardening.sh" ]; then
+HARDENING_SCRIPT="$REPO_ROOT/configs/security/hardening.sh"
+if [ -f "$HARDENING_SCRIPT" ]; then
     echo "Applying security hardening..."
-    bash "$(pwd)/configs/security/hardening.sh" "$ROOTFS_DIR"
+    bash "$HARDENING_SCRIPT" "$ROOTFS_DIR"
+else
+    echo "Security hardening script not found at $HARDENING_SCRIPT, skipping..."
 fi
 
 # Install kernel modules if available
+# Modules are expected at OUTPUT_DIR/modules-mixos.tar.gz (from build-kernel.sh)
 if [ -f "$OUTPUT_DIR/modules-mixos.tar.gz" ]; then
-    echo "Installing kernel modules..."
+    echo "Installing kernel modules from $OUTPUT_DIR/modules-mixos.tar.gz..."
     tar -xzf "$OUTPUT_DIR/modules-mixos.tar.gz" -C "$ROOTFS_DIR"
+    echo "Kernel modules installed to $ROOTFS_DIR/lib/modules/"
+    ls -la "$ROOTFS_DIR/lib/modules/" 2>/dev/null || true
+else
+    echo "Kernel modules not found at $OUTPUT_DIR/modules-mixos.tar.gz, skipping..."
 fi
 
 # Copy mix CLI if available
+# Mix CLI is expected at OUTPUT_DIR/mix (from mix-cli build)
 if [ -f "$OUTPUT_DIR/mix" ]; then
-    echo "Installing mix package manager..."
+    echo "Installing mix package manager from $OUTPUT_DIR/mix..."
     cp "$OUTPUT_DIR/mix" "$ROOTFS_DIR/usr/bin/mix"
     chmod +x "$ROOTFS_DIR/usr/bin/mix"
     
     # Create mixmagisk symlink
     ln -sf mix "$ROOTFS_DIR/usr/bin/mixmagisk"
+    echo "Mix CLI installed"
+else
+    echo "Mix CLI not found at $OUTPUT_DIR/mix, skipping..."
 fi
 
 # Copy packages if available
-if [ -d "$OUTPUT_DIR/packages" ] && [ "$(ls -A $OUTPUT_DIR/packages)" ]; then
-    echo "Installing packages..."
+# Packages are expected at OUTPUT_DIR/packages/*.mixpkg
+if [ -d "$OUTPUT_DIR/packages" ] && [ -n "$(ls -A "$OUTPUT_DIR/packages" 2>/dev/null)" ]; then
+    echo "Installing packages from $OUTPUT_DIR/packages/..."
     mkdir -p "$ROOTFS_DIR/var/lib/mix/packages"
     
     # Copy all .mixpkg files to the package cache
@@ -408,14 +430,18 @@ if [ -d "$OUTPUT_DIR/packages" ] && [ "$(ls -A $OUTPUT_DIR/packages)" ]; then
     echo "Available packages:"
     ls -lah "$ROOTFS_DIR/var/lib/mix/packages/" 2>/dev/null || true
 else
-    echo "No packages found - mix will work in offline mode"
+    echo "No packages found at $OUTPUT_DIR/packages/ - mix will work in offline mode"
 fi
 
 # Copy installer if available
+# Installer is expected at OUTPUT_DIR/mixos-install (from installer build)
 if [ -f "$OUTPUT_DIR/mixos-install" ]; then
-    echo "Installing mixos installer..."
+    echo "Installing mixos installer from $OUTPUT_DIR/mixos-install..."
     cp "$OUTPUT_DIR/mixos-install" "$ROOTFS_DIR/usr/bin/mixos-install"
     chmod +x "$ROOTFS_DIR/usr/bin/mixos-install"
+    echo "Installer installed"
+else
+    echo "Installer not found at $OUTPUT_DIR/mixos-install, skipping..."
 fi
 
 # Create installer configuration directory and sample config
@@ -478,14 +504,17 @@ mkdir -p "$ROOTFS_DIR/var/lib/mixos"
 # Optionally copy a provided install.yaml into the image for unattended ISOs.
 # Set INSTALL_CONFIG to an absolute path to a YAML file, or place a
 # packaging/install.yaml file in the repository.
+PACKAGING_INSTALL_YAML="$REPO_ROOT/packaging/install.yaml"
 if [ -n "$INSTALL_CONFIG" ] && [ -f "$INSTALL_CONFIG" ]; then
     echo "Copying provided installer config: $INSTALL_CONFIG -> /etc/mixos/install.yaml"
     cp "$INSTALL_CONFIG" "$ROOTFS_DIR/etc/mixos/install.yaml"
     chmod 0644 "$ROOTFS_DIR/etc/mixos/install.yaml"
-elif [ -f "$(pwd)/packaging/install.yaml" ]; then
-    echo "Copying packaging/install.yaml -> /etc/mixos/install.yaml"
-    cp "$(pwd)/packaging/install.yaml" "$ROOTFS_DIR/etc/mixos/install.yaml"
+elif [ -f "$PACKAGING_INSTALL_YAML" ]; then
+    echo "Copying $PACKAGING_INSTALL_YAML -> /etc/mixos/install.yaml"
+    cp "$PACKAGING_INSTALL_YAML" "$ROOTFS_DIR/etc/mixos/install.yaml"
     chmod 0644 "$ROOTFS_DIR/etc/mixos/install.yaml"
+else
+    echo "No install.yaml found, skipping..."
 fi
 
 # Create package database directory

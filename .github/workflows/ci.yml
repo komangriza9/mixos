@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  GO_VERSION: '1.21'
+  VERSION: '1.0.0'
+  # Standardized directory structure
+  BUILD_DIR: /tmp/mixos-build
+  OUTPUT_DIR: ${{ github.workspace }}/artifacts
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,14 +23,14 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
-            ${{ github.workspace }}/pkg/mod
+            ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
@@ -49,44 +56,49 @@ jobs:
 
       - name: Build binaries
         run: |
-          mkdir -p artifacts
-          # mix-cli (non-static, built with repo flags)
-          cd src/mix-cli && go build -ldflags='-s -w' -o ../../artifacts/mix .
-          # installer (static, no cgo)
-          cd ../installer && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-s -w' -o ../../artifacts/mixos-install .
-          ls -lah artifacts || true
+          mkdir -p ${{ env.OUTPUT_DIR }}/boot ${{ env.OUTPUT_DIR }}/packages
+          
+          # Build mix-cli
+          cd src/mix-cli
+          go build -ldflags='-s -w' -o ${{ env.OUTPUT_DIR }}/mix .
+          chmod +x ${{ env.OUTPUT_DIR }}/mix
+          
+          # Build installer (static, no cgo)
+          cd ../installer
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-s -w' -o ${{ env.OUTPUT_DIR }}/mixos-install .
+          chmod +x ${{ env.OUTPUT_DIR }}/mixos-install
+          
+          echo "=== Built binaries ==="
+          ls -lah ${{ env.OUTPUT_DIR }}/
 
       - name: Smoke check binaries
         run: |
-          if [ -f artifacts/mixos-install ]; then
-            chmod +x artifacts/mixos-install
-            artifacts/mixos-install --version || (echo 'installer failed' && exit 1)
+          if [ -f ${{ env.OUTPUT_DIR }}/mixos-install ]; then
+            ${{ env.OUTPUT_DIR }}/mixos-install --version
           else
             echo "Installer binary not found"; exit 1
           fi
-          if [ -f artifacts/mix ]; then
-            chmod +x artifacts/mix
-            artifacts/mix --help >/dev/null || echo 'mix help check'
+          if [ -f ${{ env.OUTPUT_DIR }}/mix ]; then
+            ${{ env.OUTPUT_DIR }}/mix --help >/dev/null || echo 'mix help check'
           fi
 
       - name: Autoinstall dry-run
         run: |
-          if [ -f artifacts/mixos-install ]; then
-            chmod +x artifacts/mixos-install
-            artifacts/mixos-install --config packaging/install.yaml --dry-run || (echo 'autoinstall dry-run failed' && exit 1)
+          if [ -f ${{ env.OUTPUT_DIR }}/mixos-install ]; then
+            ${{ env.OUTPUT_DIR }}/mixos-install --config packaging/install.yaml --dry-run
           else
             echo "Installer binary not found"; exit 1
           fi
 
       - name: Build packages (optional)
         run: |
+          export BUILD_DIR=${{ env.BUILD_DIR }}
+          export OUTPUT_DIR=${{ env.OUTPUT_DIR }}
+          export REPO_ROOT=${{ github.workspace }}
           make packages || true
-        env:
-          BUILD_DIR: /tmp/mixos-build
-          OUTPUT_DIR: ${{ github.workspace }}/artifacts
 
       - name: Archive artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mixos-artifacts
-          path: artifacts/
+          path: ${{ env.OUTPUT_DIR }}/
