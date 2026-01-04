@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 MIX="$PROJECT_DIR/artifacts/mix"
-TEST_DIR="/tmp/mix-test-$$"
+TEST_DIR="$(pwd)/.tmp/mix-test-$$"
 DB_PATH="$TEST_DIR/packages.db"
 CACHE_DIR="$TEST_DIR/cache"
 PKG_DIR="$PROJECT_DIR/artifacts/packages"

@@ -7,7 +7,7 @@
 set -e
 
 # Configuration
-BUILD_DIR="${BUILD_DIR:-/tmp/mixos-build}"
+BUILD_DIR="${BUILD_DIR:-$(pwd)/.tmp/mixos-build}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts}"
 KERNEL_VERSION="${KERNEL_VERSION:-6.6.8-mixos}"
 

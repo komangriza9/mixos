@@ -7,7 +7,7 @@ set -e
 KERNEL_VERSION="6.6.8"
 KERNEL_MAJOR="6"
 KERNEL_URL="https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_MAJOR}.x/linux-${KERNEL_VERSION}.tar.xz"
-BUILD_DIR="${BUILD_DIR:-/tmp/mixos-build}"
+BUILD_DIR="${BUILD_DIR:-$(pwd)/.tmp/mixos-build}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts}"
 CONFIG_FILE="${CONFIG_FILE:-$(pwd)/configs/kernel/mixos_defconfig}"
 JOBS="${JOBS:-$(nproc)}"

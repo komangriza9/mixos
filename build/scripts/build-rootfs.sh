@@ -4,7 +4,7 @@
 
 set -e
 
-BUILD_DIR="${BUILD_DIR:-/tmp/mixos-build}"
+BUILD_DIR="${BUILD_DIR:-$(pwd)/.tmp/mixos-build}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts}"
 ROOTFS_DIR="$BUILD_DIR/rootfs"
 BUSYBOX_VERSION="1.36.1"

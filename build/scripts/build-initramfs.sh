@@ -7,7 +7,7 @@
 set -e
 
 # Configuration
-BUILD_DIR="${BUILD_DIR:-/tmp/mixos-build}"
+BUILD_DIR="${BUILD_DIR:-$(pwd)/.tmp/mixos-build}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts}"
 REPO_ROOT="${REPO_ROOT:-$(pwd)}"
 INITRAMFS_SRC="$REPO_ROOT/initramfs"
