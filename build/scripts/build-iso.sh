@@ -35,6 +35,37 @@ echo "║     VISO/SDISK/VRAM Support                                  ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
+log_info "Checking required tools..."
+MISSING_TOOLS=0
+
+# Check for mksquashfs
+if ! command -v mksquashfs >/dev/null 2>&1; then
+    log_error "mksquashfs not found"
+    echo "  Install: apt-get install squashfs-tools"
+    MISSING_TOOLS=1
+else
+    log_ok "Found: mksquashfs"
+fi
+
+# Check for ISO creation tools
+if ! command -v xorriso >/dev/null 2>&1 && \
+   ! command -v genisoimage >/dev/null 2>&1 && \
+   ! command -v mkisofs >/dev/null 2>&1; then
+    log_error "No ISO creation tool found (xorriso/genisoimage/mkisofs)"
+    echo "  Install one of:"
+    echo "    apt-get install xorriso"
+    echo "    apt-get install genisoimage"
+    MISSING_TOOLS=1
+else
+    TOOL_FOUND=$(command -v xorriso || command -v genisoimage || command -v mkisofs)
+    log_ok "Found: $(basename "$TOOL_FOUND")"
+fi
+
+if [ $MISSING_TOOLS -eq 1 ]; then
+    log_error "Missing required build tools"
+    exit 1
+fi
+
 log_info "Build Directory: $BUILD_DIR"
 log_info "Rootfs Directory: $ROOTFS_DIR"
 log_info "ISO Directory: $ISO_DIR"

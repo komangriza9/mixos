@@ -38,6 +38,8 @@ go.work.sum
 *.iso
 *.img
 *.qcow2
+*.viso
+*.vram
 
 # Kernel build
 linux-*/

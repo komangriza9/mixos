@@ -128,6 +128,10 @@ CONFIG_ASH_BASH_COMPAT=y
 CONFIG_FEATURE_SH_STANDALONE=n
 EOF
 
+# Normalize config for any new options with defaults
+log_info "Normalizing BusyBox configuration..."
+yes "" | make oldconfig > /dev/null 2>&1 || true
+
 # Build
 log_info "Building BusyBox..."
 make -j"$(nproc)" 2>/dev/null || make

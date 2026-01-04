@@ -33,8 +33,8 @@ NC := \033[0m
 # Main targets
 #=============================================================================
 
-all: toolchain-check kernel mix-cli installer packages rootfs iso
-all: toolchain-check kernel mix-cli packages rootfs initramfs viso
+# all: toolchain-check kernel mix-cli installer packages rootfs iso
+all: toolchain-check kernel mix-cli installer packages rootfs initramfs viso iso
 	@echo -e "$(GREEN)✓ MixOS-GO v$(VERSION) build complete!$(NC)"
 	@echo ""
 	@echo "Build artifacts:"
@@ -153,7 +153,7 @@ installer: toolchain-check
 	cd src/installer && \
 		go mod tidy && \
 		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o $(OUTPUT_DIR)/mixos-install .
-	@echo -e "$(GREEN)✓ Installer built ($(shell du -h $(OUTPUT_DIR)/mixos-install | cut -f1 2>/dev/null || echo '0'))$(NC)"
+	@echo -e "$(GREEN)✓ Installer built ($(shell [ -f $(OUTPUT_DIR)/mixos-install ] && du -h $(OUTPUT_DIR)/mixos-install | cut -f1 || echo 'unknown'))$(NC)"
 
 #=============================================================================
 # Root Filesystem
