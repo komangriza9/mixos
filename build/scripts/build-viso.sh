@@ -112,7 +112,29 @@ done
 log_ok "Prerequisites verified"
 
 # ============================================================================
-# Step 2: Create squashfs rootfs
+# Step 2: Ensure install.yaml is in rootfs for unattended install
+# ============================================================================
+log_step "Checking for install.yaml..."
+PACKAGING_INSTALL_YAML="$REPO_ROOT/packaging/install.yaml"
+if [ ! -f "$ROOTFS_DIR/etc/mixos/install.yaml" ]; then
+    mkdir -p "$ROOTFS_DIR/etc/mixos"
+    if [ -n "$INSTALL_CONFIG" ] && [ -f "$INSTALL_CONFIG" ]; then
+        log_info "Copying provided installer config: $INSTALL_CONFIG"
+        cp "$INSTALL_CONFIG" "$ROOTFS_DIR/etc/mixos/install.yaml"
+        chmod 0644 "$ROOTFS_DIR/etc/mixos/install.yaml"
+    elif [ -f "$PACKAGING_INSTALL_YAML" ]; then
+        log_info "Copying $PACKAGING_INSTALL_YAML"
+        cp "$PACKAGING_INSTALL_YAML" "$ROOTFS_DIR/etc/mixos/install.yaml"
+        chmod 0644 "$ROOTFS_DIR/etc/mixos/install.yaml"
+    else
+        log_warn "No install.yaml found - unattended install will not be available"
+    fi
+else
+    log_ok "install.yaml already present in rootfs"
+fi
+
+# ============================================================================
+# Step 3: Create squashfs rootfs
 # ============================================================================
 log_step "Creating squashfs rootfs..."
 
@@ -137,7 +159,7 @@ else
 fi
 
 # ============================================================================
-# Step 3: Create VISO directory structure
+# Step 4: Create VISO directory structure
 # ============================================================================
 log_step "Creating VISO structure..."
 
@@ -239,7 +261,7 @@ EOF
 log_ok "VISO structure created"
 
 # ============================================================================
-# Step 4: Create VISO image (qcow2)
+# Step 5: Create VISO image (qcow2)
 # ============================================================================
 log_step "Creating VISO image..."
 
@@ -351,7 +373,7 @@ elif [ "$VISO_CREATED" != "archive" ]; then
 fi
 
 # ============================================================================
-# Step 5: Setup bootloader for VISO (if needed)
+# Step 6: Setup bootloader for VISO (if needed)
 # ============================================================================
 log_step "Setting up bootloader..."
 
@@ -382,7 +404,7 @@ if [ "$VISO_CREATED" = "archive" ]; then
 fi
 
 # ============================================================================
-# Step 6: Create additional formats
+# Step 7: Create additional formats
 # ============================================================================
 log_step "Creating additional formats..."
 
@@ -454,7 +476,7 @@ rm -rf "$VRAM_PKG"
 log_ok "VRAM package created"
 
 # ============================================================================
-# Step 7: Generate checksums
+# Step 8: Generate checksums
 # ============================================================================
 log_step "Generating checksums..."
 

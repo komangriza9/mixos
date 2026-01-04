@@ -220,7 +220,29 @@ else
 fi
 
 # ============================================================================
-# Step 3: Create SquashFS from rootfs
+# Step 3: Ensure install.yaml is in rootfs for unattended install
+# ============================================================================
+log_info "Checking for install.yaml..."
+PACKAGING_INSTALL_YAML="$REPO_ROOT/packaging/install.yaml"
+if [ ! -f "$ROOTFS_DIR/etc/mixos/install.yaml" ]; then
+    mkdir -p "$ROOTFS_DIR/etc/mixos"
+    if [ -n "$INSTALL_CONFIG" ] && [ -f "$INSTALL_CONFIG" ]; then
+        log_info "Copying provided installer config: $INSTALL_CONFIG"
+        cp "$INSTALL_CONFIG" "$ROOTFS_DIR/etc/mixos/install.yaml"
+        chmod 0644 "$ROOTFS_DIR/etc/mixos/install.yaml"
+    elif [ -f "$PACKAGING_INSTALL_YAML" ]; then
+        log_info "Copying $PACKAGING_INSTALL_YAML"
+        cp "$PACKAGING_INSTALL_YAML" "$ROOTFS_DIR/etc/mixos/install.yaml"
+        chmod 0644 "$ROOTFS_DIR/etc/mixos/install.yaml"
+    else
+        log_warn "No install.yaml found - unattended install will not be available"
+    fi
+else
+    log_ok "install.yaml already present in rootfs"
+fi
+
+# ============================================================================
+# Step 4: Create SquashFS from rootfs
 # ============================================================================
 log_info "Creating SquashFS filesystem..."
 mksquashfs "$ROOTFS_DIR" "$ISO_DIR/live/filesystem.squashfs" \
@@ -236,7 +258,7 @@ SQUASHFS_SIZE=$(du -h "$ISO_DIR/live/filesystem.squashfs" | cut -f1)
 log_ok "SquashFS created: $SQUASHFS_SIZE"
 
 # ============================================================================
-# Step 4: Create ISO metadata
+# Step 5: Create ISO metadata
 # ============================================================================
 log_info "Creating ISO metadata..."
 
@@ -260,7 +282,7 @@ cat > "$ISO_DIR/config/iso.json" << EOF
 EOF
 
 # ============================================================================
-# Step 5: Create GRUB configuration
+# Step 6: Create GRUB configuration
 # ============================================================================
 log_info "Creating GRUB configuration..."
 cat > "$ISO_DIR/boot/grub/grub.cfg" << EOF
@@ -315,7 +337,7 @@ EOF
 log_ok "GRUB configuration created"
 
 # ============================================================================
-# Step 6: Create ISO image
+# Step 7: Create ISO image
 # ============================================================================
 log_info "Creating ISO image..."
 sync
@@ -373,7 +395,7 @@ if [ $ISO_CREATED -eq 0 ]; then
 fi
 
 # ============================================================================
-# Step 7: Generate checksums and summary
+# Step 8: Generate checksums and summary
 # ============================================================================
 cd "$OUTPUT_DIR"
 if [ -f "$ISO_NAME" ]; then
