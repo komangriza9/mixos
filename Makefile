@@ -235,57 +235,89 @@ test-mix:
 	@echo -e "$(GREEN)✓ Mix CLI tests passed$(NC)"
 
 test-qemu:
-	@echo -e "$(YELLOW)Booting ISO in QEMU...$(NC)"
+	@echo -e "$(YELLOW)Booting ISO in QEMU (With kernel and SDISK)...$(NC)"
+	@if [ -f $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso ] && [ -f $(OUTPUT_DIR)/boot/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
+		qemu-system-x86_64 \
+			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
+			-cdrom $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso \
+			-m 512 \
+			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
+			-enable-kvm 2>/dev/null || \
+		qemu-system-x86_64 \
+			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
+			-cdrom $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso \
+			-m 512 \
+			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
+			-nographic; \
+	else \
+		echo -e "$(RED)Required artifacts not found. Run 'make iso' first.$(NC)"; \
+		exit 1; \
+	fi
+
+test-iso:
+	@echo -e "$(CYAN)Testing ISO boot (Alternative method without external kernel)...$(NC)"
 	@if [ -f $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso ]; then \
 		qemu-system-x86_64 \
 			-cdrom $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso \
 			-m 512 \
+			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
 			-enable-kvm 2>/dev/null || \
 		qemu-system-x86_64 \
 			-cdrom $(OUTPUT_DIR)/mixos-go-v$(VERSION).iso \
 			-m 512 \
+			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
 			-nographic; \
 	else \
 		echo -e "$(RED)ISO not found. Run 'make iso' first.$(NC)"; \
 		exit 1; \
 	fi
 
-test-iso: test-qemu
-
 test-viso:
-	@echo -e "$(CYAN)Booting VISO in QEMU with virtio (Maximum Performance)...$(NC)"
-	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ]; then \
+	@echo -e "$(CYAN)Booting VISO with kernel and SDISK (Maximum Performance)...$(NC)"
+	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ] && [ -f $(OUTPUT_DIR)/boot/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
 		qemu-system-x86_64 \
+			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio,cache=writeback,aio=threads \
 			-m 2G \
 			-cpu host \
+			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
 			-enable-kvm 2>/dev/null || \
 		qemu-system-x86_64 \
+			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio \
 			-m 2G \
+			-append "console=ttyS0 SDISK=$(VISO_NAME).VISO" \
 			-nographic; \
 	else \
-		echo -e "$(RED)VISO not found. Run 'make viso' first.$(NC)"; \
+		echo -e "$(RED)Required artifacts not found. Run 'make viso' first.$(NC)"; \
 		exit 1; \
 	fi
 
 test-vram:
 	@echo -e "$(CYAN)Booting with VRAM mode (System runs from RAM)...$(NC)"
-	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ]; then \
+	@if [ -f $(OUTPUT_DIR)/$(VISO_NAME).viso ] && [ -f $(OUTPUT_DIR)/boot/vmlinuz-mixos ] && [ -f $(OUTPUT_DIR)/boot/initramfs-mixos.img ]; then \
 		qemu-system-x86_64 \
+			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio,cache=writeback,aio=threads \
 			-m 4G \
 			-cpu host \
-			-enable-kvm \
 			-append "console=ttyS0 VRAM=auto SDISK=$(VISO_NAME).VISO" \
+			-enable-kvm \
 			-nographic 2>/dev/null || \
 		qemu-system-x86_64 \
+			-kernel $(OUTPUT_DIR)/boot/vmlinuz-mixos \
+			-initrd $(OUTPUT_DIR)/boot/initramfs-mixos.img \
 			-drive file=$(OUTPUT_DIR)/$(VISO_NAME).viso,format=qcow2,if=virtio \
 			-m 4G \
-			-append "console=ttyS0 VRAM=auto" \
+			-append "console=ttyS0 VRAM=auto SDISK=$(VISO_NAME).VISO" \
 			-nographic; \
 	else \
-		echo -e "$(RED)VISO not found. Run 'make viso' first.$(NC)"; \
+		echo -e "$(RED)Required artifacts not found. Run 'make viso' first.$(NC)"; \
 		exit 1; \
 	fi
 
