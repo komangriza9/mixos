@@ -7,14 +7,15 @@ set -e
 PKG_NAME="openssh"
 PKG_VERSION="9.6"
 PKG_DESC="OpenSSH server and client"
-BUILD_DIR="${BUILD_DIR:-/tmp/mixos-build/packages/$PKG_NAME}"
-OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts/packages}"
+BUILD_DIR="${BUILD_DIR:-/tmp/mixos-build}/packages/$PKG_NAME"
+OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/artifacts}"
+PKG_OUTPUT_DIR="$OUTPUT_DIR/packages"
 
 echo "Building $PKG_NAME $PKG_VERSION..."
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/files"
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$PKG_OUTPUT_DIR"
 
 cd "$BUILD_DIR"
 
@@ -127,6 +128,6 @@ cat > metadata.json << EOF
 EOF
 
 # Create package
-tar -czf "$OUTPUT_DIR/${PKG_NAME}-${PKG_VERSION}.mixpkg" metadata.json files/
+tar -czf "$PKG_OUTPUT_DIR/${PKG_NAME}-${PKG_VERSION}.mixpkg" metadata.json files/
 
-echo "Package created: $OUTPUT_DIR/${PKG_NAME}-${PKG_VERSION}.mixpkg"
+echo "Package created: $PKG_OUTPUT_DIR/${PKG_NAME}-${PKG_VERSION}.mixpkg"
