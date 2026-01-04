@@ -1,0 +1,783 @@
+#!/bin/sh
+# ============================================================================
+# MixOS-GO Init System v1.0
+# VISO/SDISK/VRAM Support - Revolutionary Boot System
+# ============================================================================
+# Features:
+#   - VISO: Virtual ISO format (replaces traditional CDROM)
+#   - SDISK: Selection Disk boot mechanism
+#   - VRAM: Convert partition to Virtual RAM for maximum performance
+#   - Multi-mode boot: virtio, disk, cdrom, network
+# ============================================================================
+
+# Strict mode for reliability
+set -e
+
+# Essential paths
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+
+# Version info
+MIXOS_VERSION="1.0.0"
+INIT_VERSION="1.0.0"
+
+# Configuration
+VRAM_MIN_SIZE_MB=2048          # Minimum 2GB for VRAM mode
+VRAM_OVERHEAD_MB=512           # RAM overhead for system
+DEVICE_WAIT_TIMEOUT=15         # Seconds to wait for devices
+MOUNT_RETRY_COUNT=5            # Number of mount retries
+MOUNT_RETRY_DELAY=2            # Seconds between retries
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Logging functions
+log_info() {
+    echo -e "${CYAN}[INFO]${NC} $1"
+}
+
+log_ok() {
+    echo -e "${GREEN}[OK]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+log_step() {
+    echo -e "${BLUE}[STEP]${NC} $1"
+}
+
+# ============================================================================
+# PHASE 1: Essential Filesystem Mounting
+# ============================================================================
+mount_essential() {
+    log_step "Mounting essential filesystems..."
+    
+    # Mount proc if not already mounted
+    if ! grep -q "^proc /proc" /proc/mounts 2>/dev/null; then
+        mount -t proc proc /proc
+        log_ok "Mounted /proc"
+    fi
+    
+    # Mount sysfs if not already mounted
+    if ! grep -q "^sysfs /sys" /proc/mounts 2>/dev/null; then
+        mount -t sysfs sysfs /sys
+        log_ok "Mounted /sys"
+    fi
+    
+    # Mount devtmpfs
+    if ! grep -q "^devtmpfs /dev" /proc/mounts 2>/dev/null; then
+        mount -t devtmpfs devtmpfs /dev
+        log_ok "Mounted /dev"
+    fi
+    
+    # Create additional device directories
+    mkdir -p /dev/pts /dev/shm /run
+    
+    # Mount devpts
+    if ! grep -q "^devpts /dev/pts" /proc/mounts 2>/dev/null; then
+        mount -t devpts devpts /dev/pts
+        log_ok "Mounted /dev/pts"
+    fi
+    
+    # Mount tmpfs for /dev/shm
+    if ! grep -q "^tmpfs /dev/shm" /proc/mounts 2>/dev/null; then
+        mount -t tmpfs tmpfs /dev/shm
+        log_ok "Mounted /dev/shm"
+    fi
+    
+    # Mount tmpfs for /run
+    if ! grep -q "^tmpfs /run" /proc/mounts 2>/dev/null; then
+        mount -t tmpfs tmpfs /run
+        log_ok "Mounted /run"
+    fi
+    
+    log_ok "Essential filesystems mounted successfully"
+}
+
+# ============================================================================
+# PHASE 2: Kernel Module Loading
+# ============================================================================
+load_modules() {
+    log_step "Loading kernel modules..."
+    
+    local kernel_version=$(uname -r)
+    local modules_dir="/lib/modules/$kernel_version"
+    
+    if [ ! -d "$modules_dir" ]; then
+        log_warn "Modules directory not found: $modules_dir"
+        return 0
+    fi
+    
+    # Critical modules in dependency order
+    local CRITICAL_MODULES="
+        kernel/fs/squashfs/squashfs.ko
+        kernel/fs/ext4/ext4.ko
+        kernel/fs/overlayfs/overlay.ko
+        kernel/drivers/virtio/virtio.ko
+        kernel/drivers/virtio/virtio_ring.ko
+        kernel/drivers/virtio/virtio_pci.ko
+        kernel/drivers/block/virtio_blk.ko
+        kernel/drivers/ata/libata.ko
+        kernel/drivers/ata/ata_piix.ko
+        kernel/drivers/ata/ahci.ko
+        kernel/drivers/scsi/scsi_mod.ko
+        kernel/drivers/scsi/sd_mod.ko
+        kernel/drivers/scsi/sr_mod.ko
+        kernel/drivers/cdrom/cdrom.ko
+        kernel/drivers/block/loop.ko
+        kernel/drivers/net/virtio_net.ko
+    "
+    
+    local loaded=0
+    local failed=0
+    
+    for mod in $CRITICAL_MODULES; do
+        local mod_path="$modules_dir/$mod"
+        local mod_name=$(basename "$mod" .ko)
+        
+        if [ -f "$mod_path" ]; then
+            if insmod "$mod_path" 2>/dev/null; then
+                log_ok "Loaded: $mod_name"
+                loaded=$((loaded + 1))
+            else
+                # Module might already be loaded or have unmet deps
+                if grep -q "^$mod_name " /proc/modules 2>/dev/null; then
+                    log_info "Already loaded: $mod_name"
+                else
+                    log_warn "Failed to load: $mod_name"
+                    failed=$((failed + 1))
+                fi
+            fi
+        fi
+    done
+    
+    log_ok "Module loading complete: $loaded loaded, $failed failed"
+}
+
+# ============================================================================
+# PHASE 3: Device Detection and Waiting
+# ============================================================================
+wait_for_device() {
+    local device=$1
+    local timeout=${2:-$DEVICE_WAIT_TIMEOUT}
+    local count=0
+    
+    log_info "Waiting for device: $device (timeout: ${timeout}s)"
+    
+    while [ $count -lt $timeout ]; do
+        if [ -b "$device" ]; then
+            log_ok "Device ready: $device"
+            return 0
+        fi
+        sleep 1
+        count=$((count + 1))
+        
+        # Show progress every 5 seconds
+        if [ $((count % 5)) -eq 0 ]; then
+            log_info "Still waiting... ($count/${timeout}s)"
+        fi
+    done
+    
+    log_error "Device not found after ${timeout}s: $device"
+    return 1
+}
+
+# Detect all available block devices
+detect_devices() {
+    log_step "Detecting block devices..."
+    
+    echo ""
+    echo "Available block devices:"
+    echo "========================"
+    
+    # List all block devices
+    for dev in /dev/sd* /dev/vd* /dev/sr* /dev/hd* /dev/nvme*; do
+        if [ -b "$dev" ]; then
+            local size=$(blockdev --getsize64 "$dev" 2>/dev/null || echo "unknown")
+            if [ "$size" != "unknown" ]; then
+                size=$((size / 1024 / 1024))MB
+            fi
+            echo "  $dev ($size)"
+        fi
+    done 2>/dev/null
+    
+    echo ""
+}
+
+# ============================================================================
+# PHASE 4: Mount with Retry Logic
+# ============================================================================
+mount_with_retry() {
+    local device=$1
+    local mountpoint=$2
+    local fstype=${3:-auto}
+    local options=${4:-ro}
+    local attempt=1
+    
+    mkdir -p "$mountpoint"
+    
+    log_info "Mounting $device -> $mountpoint (type: $fstype)"
+    
+    while [ $attempt -le $MOUNT_RETRY_COUNT ]; do
+        log_info "Mount attempt $attempt/$MOUNT_RETRY_COUNT..."
+        
+        if mount -t "$fstype" -o "$options" "$device" "$mountpoint" 2>/dev/null; then
+            log_ok "Successfully mounted $device"
+            return 0
+        fi
+        
+        log_warn "Attempt $attempt failed, retrying in ${MOUNT_RETRY_DELAY}s..."
+        sleep $MOUNT_RETRY_DELAY
+        attempt=$((attempt + 1))
+    done
+    
+    log_error "Failed to mount $device after $MOUNT_RETRY_COUNT attempts"
+    return 1
+}
+
+# ============================================================================
+# PHASE 5: Boot Mode Detection
+# ============================================================================
+parse_cmdline() {
+    local cmdline=$(cat /proc/cmdline)
+    
+    # Parse SDISK parameter
+    SDISK_VALUE=""
+    if echo "$cmdline" | grep -q "SDISK="; then
+        SDISK_VALUE=$(echo "$cmdline" | sed -n 's/.*SDISK=\([^ ]*\).*/\1/p')
+    fi
+    
+    # Parse VRAM parameter
+    VRAM_ENABLED=""
+    if echo "$cmdline" | grep -q "VRAM="; then
+        VRAM_ENABLED=$(echo "$cmdline" | sed -n 's/.*VRAM=\([^ ]*\).*/\1/p')
+    fi
+    
+    # Parse root parameter
+    ROOT_DEVICE=""
+    if echo "$cmdline" | grep -q "root="; then
+        ROOT_DEVICE=$(echo "$cmdline" | sed -n 's/.*root=\([^ ]*\).*/\1/p')
+    fi
+    
+    # Parse debug mode
+    DEBUG_MODE=""
+    if echo "$cmdline" | grep -q "debug"; then
+        DEBUG_MODE="1"
+    fi
+}
+
+detect_boot_mode() {
+    log_step "Detecting boot mode..."
+    
+    parse_cmdline
+    
+    # Priority 1: SDISK parameter
+    if [ -n "$SDISK_VALUE" ]; then
+        log_ok "Boot mode: SDISK ($SDISK_VALUE)"
+        echo "sdisk"
+        return
+    fi
+    
+    # Priority 2: Explicit root device
+    if [ -n "$ROOT_DEVICE" ]; then
+        log_ok "Boot mode: ROOT ($ROOT_DEVICE)"
+        echo "root"
+        return
+    fi
+    
+    # Priority 3: Virtio disk (QEMU/KVM)
+    if [ -b /dev/vda ]; then
+        log_ok "Boot mode: VIRTIO (/dev/vda)"
+        echo "virtio"
+        return
+    fi
+    
+    # Priority 4: SATA/IDE disk
+    if [ -b /dev/sda ]; then
+        log_ok "Boot mode: DISK (/dev/sda)"
+        echo "disk"
+        return
+    fi
+    
+    # Priority 5: NVMe disk
+    if [ -b /dev/nvme0n1 ]; then
+        log_ok "Boot mode: NVME (/dev/nvme0n1)"
+        echo "nvme"
+        return
+    fi
+    
+    # Priority 6: CD-ROM
+    if [ -b /dev/sr0 ]; then
+        log_ok "Boot mode: CDROM (/dev/sr0)"
+        echo "cdrom"
+        return
+    fi
+    
+    log_error "No bootable device found!"
+    echo "unknown"
+}
+
+# ============================================================================
+# PHASE 6: VRAM System (Revolutionary Feature)
+# ============================================================================
+get_total_ram_mb() {
+    awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo
+}
+
+get_available_ram_mb() {
+    awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo
+}
+
+get_file_size_mb() {
+    local file=$1
+    if [ -f "$file" ]; then
+        du -m "$file" | cut -f1
+    else
+        echo "0"
+    fi
+}
+
+check_vram_capability() {
+    local rootfs_path=$1
+    
+    log_step "Checking VRAM capability..."
+    
+    local total_ram=$(get_total_ram_mb)
+    local available_ram=$(get_available_ram_mb)
+    local rootfs_size=$(get_file_size_mb "$rootfs_path")
+    
+    # Calculate required RAM: rootfs * 2 (for extraction) + overhead
+    local required_ram=$((rootfs_size * 2 + VRAM_OVERHEAD_MB))
+    
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║         VRAM CAPABILITY CHECK            ║"
+    echo "╠══════════════════════════════════════════╣"
+    printf "║  Total RAM:      %8d MB             ║\n" "$total_ram"
+    printf "║  Available RAM:  %8d MB             ║\n" "$available_ram"
+    printf "║  Rootfs Size:    %8d MB             ║\n" "$rootfs_size"
+    printf "║  Required RAM:   %8d MB             ║\n" "$required_ram"
+    echo "╠══════════════════════════════════════════╣"
+    
+    if [ $total_ram -ge $VRAM_MIN_SIZE_MB ] && [ $available_ram -ge $required_ram ]; then
+        echo "║  Status: ${GREEN}VRAM MODE AVAILABLE ✓${NC}        ║"
+        echo "╚══════════════════════════════════════════╝"
+        echo ""
+        return 0
+    else
+        echo "║  Status: ${YELLOW}INSUFFICIENT RAM ✗${NC}           ║"
+        echo "╚══════════════════════════════════════════╝"
+        echo ""
+        return 1
+    fi
+}
+
+activate_vram() {
+    local source_path=$1
+    local vram_mount="/mnt/vram"
+    
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║     🚀 ACTIVATING VRAM MODE 🚀          ║"
+    echo "║     Maximum Performance Engaged          ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo ""
+    
+    local rootfs_size=$(get_file_size_mb "$source_path")
+    local tmpfs_size=$((rootfs_size + 256))  # Add 256MB buffer
+    
+    log_step "Creating ${tmpfs_size}MB tmpfs for VRAM..."
+    
+    mkdir -p "$vram_mount"
+    
+    if ! mount -t tmpfs -o size=${tmpfs_size}M,mode=0755 tmpfs "$vram_mount"; then
+        log_error "Failed to create tmpfs for VRAM"
+        return 1
+    fi
+    
+    log_ok "VRAM tmpfs created: ${tmpfs_size}MB"
+    
+    log_step "Extracting rootfs to VRAM (this may take 30-90 seconds)..."
+    echo ""
+    echo "Please wait while the system loads into RAM..."
+    echo "This enables maximum performance after boot."
+    echo ""
+    
+    # Check if source is squashfs
+    if file "$source_path" | grep -q "Squashfs"; then
+        # Extract squashfs
+        if command -v unsquashfs >/dev/null 2>&1; then
+            if ! unsquashfs -f -d "$vram_mount" "$source_path"; then
+                log_error "Failed to extract squashfs to VRAM"
+                umount "$vram_mount"
+                return 1
+            fi
+        else
+            # Mount squashfs and copy
+            local squash_mount="/mnt/squash_tmp"
+            mkdir -p "$squash_mount"
+            if mount -t squashfs -o ro "$source_path" "$squash_mount"; then
+                cp -a "$squash_mount"/* "$vram_mount"/
+                umount "$squash_mount"
+            else
+                log_error "Failed to mount squashfs"
+                umount "$vram_mount"
+                return 1
+            fi
+        fi
+    else
+        # Direct copy for other formats
+        cp -a "$source_path"/* "$vram_mount"/
+    fi
+    
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║     ✓ VRAM MODE ACTIVATED ✓             ║"
+    echo "║     System running from RAM!             ║"
+    echo "║     Performance: MAXIMUM 🚀              ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo ""
+    
+    # Return the VRAM mount path
+    echo "$vram_mount"
+    return 0
+}
+
+# ============================================================================
+# PHASE 7: Root Filesystem Setup
+# ============================================================================
+setup_rootfs_sdisk() {
+    local device=$1
+    local viso_mount="/mnt/viso"
+    
+    log_step "Setting up SDISK/VISO root filesystem..."
+    
+    # Wait for device
+    if ! wait_for_device "$device"; then
+        return 1
+    fi
+    
+    # Mount VISO disk
+    if ! mount_with_retry "$device" "$viso_mount" "ext4" "ro"; then
+        # Try other filesystems
+        for fs in squashfs iso9660 vfat; do
+            if mount_with_retry "$device" "$viso_mount" "$fs" "ro"; then
+                break
+            fi
+        done
+    fi
+    
+    # Find rootfs
+    local rootfs_squashfs=""
+    for path in \
+        "$viso_mount/rootfs/rootfs.squashfs" \
+        "$viso_mount/live/filesystem.squashfs" \
+        "$viso_mount/rootfs.squashfs" \
+        "$viso_mount/squashfs.img"; do
+        if [ -f "$path" ]; then
+            rootfs_squashfs="$path"
+            break
+        fi
+    done
+    
+    if [ -z "$rootfs_squashfs" ]; then
+        # Maybe it's a direct rootfs
+        if [ -x "$viso_mount/sbin/init" ]; then
+            echo "$viso_mount"
+            return 0
+        fi
+        log_error "No rootfs found in VISO"
+        return 1
+    fi
+    
+    log_ok "Found rootfs: $rootfs_squashfs"
+    
+    # Check VRAM capability
+    if [ "$VRAM_ENABLED" = "auto" ] || [ "$VRAM_ENABLED" = "1" ] || [ "$VRAM_ENABLED" = "yes" ]; then
+        if check_vram_capability "$rootfs_squashfs"; then
+            local vram_path
+            vram_path=$(activate_vram "$rootfs_squashfs")
+            if [ $? -eq 0 ] && [ -n "$vram_path" ]; then
+                echo "$vram_path"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Fallback: mount squashfs directly
+    local squash_mount="/mnt/squash"
+    mkdir -p "$squash_mount"
+    if mount_with_retry "$rootfs_squashfs" "$squash_mount" "squashfs" "ro"; then
+        echo "$squash_mount"
+        return 0
+    fi
+    
+    return 1
+}
+
+setup_rootfs_virtio() {
+    setup_rootfs_sdisk "/dev/vda"
+}
+
+setup_rootfs_disk() {
+    local device="/dev/sda"
+    
+    # Try partitions first
+    for part in "${device}1" "${device}2" "$device"; do
+        if [ -b "$part" ]; then
+            if setup_rootfs_sdisk "$part"; then
+                return 0
+            fi
+        fi
+    done
+    
+    return 1
+}
+
+setup_rootfs_nvme() {
+    local device="/dev/nvme0n1"
+    
+    for part in "${device}p1" "${device}p2" "$device"; do
+        if [ -b "$part" ]; then
+            if setup_rootfs_sdisk "$part"; then
+                return 0
+            fi
+        fi
+    done
+    
+    return 1
+}
+
+setup_rootfs_cdrom() {
+    local device="/dev/sr0"
+    local cdrom_mount="/mnt/cdrom"
+    
+    log_step "Setting up CD-ROM root filesystem..."
+    
+    if ! wait_for_device "$device"; then
+        return 1
+    fi
+    
+    if ! mount_with_retry "$device" "$cdrom_mount" "iso9660" "ro"; then
+        return 1
+    fi
+    
+    # Find squashfs
+    local rootfs_squashfs=""
+    for path in \
+        "$cdrom_mount/live/filesystem.squashfs" \
+        "$cdrom_mount/rootfs/rootfs.squashfs" \
+        "$cdrom_mount/rootfs.squashfs"; do
+        if [ -f "$path" ]; then
+            rootfs_squashfs="$path"
+            break
+        fi
+    done
+    
+    if [ -z "$rootfs_squashfs" ]; then
+        log_error "No squashfs found on CD-ROM"
+        return 1
+    fi
+    
+    log_ok "Found rootfs: $rootfs_squashfs"
+    
+    # Mount squashfs
+    local squash_mount="/mnt/squash"
+    mkdir -p "$squash_mount"
+    if mount_with_retry "$rootfs_squashfs" "$squash_mount" "squashfs" "ro"; then
+        echo "$squash_mount"
+        return 0
+    fi
+    
+    return 1
+}
+
+# ============================================================================
+# PHASE 8: Switch Root
+# ============================================================================
+do_switch_root() {
+    local newroot=$1
+    
+    log_step "Preparing to switch root to: $newroot"
+    
+    # Verify newroot
+    if [ ! -d "$newroot" ]; then
+        log_error "New root is not a directory: $newroot"
+        return 1
+    fi
+    
+    if [ ! -x "$newroot/sbin/init" ] && [ ! -x "$newroot/init" ]; then
+        log_error "No init found in new root"
+        ls -la "$newroot/sbin/" 2>/dev/null || true
+        return 1
+    fi
+    
+    # Move mounts to new root
+    log_info "Moving mount points..."
+    
+    mkdir -p "$newroot/dev" "$newroot/proc" "$newroot/sys" "$newroot/run"
+    
+    # Move essential mounts
+    mount --move /dev "$newroot/dev" 2>/dev/null || true
+    mount --move /proc "$newroot/proc" 2>/dev/null || true
+    mount --move /sys "$newroot/sys" 2>/dev/null || true
+    mount --move /run "$newroot/run" 2>/dev/null || true
+    
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║     Switching to root filesystem...      ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo ""
+    
+    # Determine init path
+    local init_path="/sbin/init"
+    if [ ! -x "$newroot/sbin/init" ]; then
+        init_path="/init"
+    fi
+    
+    # Switch root!
+    exec switch_root "$newroot" "$init_path"
+    
+    # If we get here, switch_root failed
+    log_error "switch_root failed!"
+    return 1
+}
+
+# ============================================================================
+# RESCUE SHELL
+# ============================================================================
+rescue_shell() {
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║       EMERGENCY RESCUE SHELL             ║"
+    echo "║   Something went wrong during boot       ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo ""
+    
+    echo "System Information:"
+    echo "==================="
+    echo "Kernel: $(uname -r)"
+    echo "Cmdline: $(cat /proc/cmdline)"
+    echo ""
+    
+    echo "Available block devices:"
+    echo "========================"
+    ls -la /dev/sd* /dev/vd* /dev/sr* /dev/nvme* 2>/dev/null || echo "None found"
+    echo ""
+    
+    echo "Loaded modules:"
+    echo "==============="
+    lsmod 2>/dev/null || cat /proc/modules
+    echo ""
+    
+    echo "Memory info:"
+    echo "============"
+    free -m 2>/dev/null || cat /proc/meminfo | head -5
+    echo ""
+    
+    echo "Mount points:"
+    echo "============="
+    mount
+    echo ""
+    
+    echo "Type 'exit' to retry boot or use shell for debugging."
+    echo ""
+    
+    exec /bin/sh
+}
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+main() {
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║                                                              ║"
+    echo "║   ███╗   ███╗██╗██╗  ██╗ ██████╗ ███████╗     ██████╗  ██████╗  ║"
+    echo "║   ████╗ ████║██║╚██╗██╔╝██╔═══██╗██╔════╝    ██╔════╝ ██╔═══██╗ ║"
+    echo "║   ██╔████╔██║██║ ╚███╔╝ ██║   ██║███████╗    ██║  ███╗██║   ██║ ║"
+    echo "║   ██║╚██╔╝██║██║ ██╔██╗ ██║   ██║╚════██║    ██║   ██║██║   ██║ ║"
+    echo "║   ██║ ╚═╝ ██║██║██╔╝ ██╗╚██████╔╝███████║    ╚██████╔╝╚██████╔╝ ║"
+    echo "║   ╚═╝     ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝     ╚═════╝  ╚═════╝  ║"
+    echo "║                                                              ║"
+    echo "║              Boot System v${INIT_VERSION} - VISO/SDISK/VRAM              ║"
+    echo "║                                                              ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    # Step 1: Mount essential filesystems
+    mount_essential || rescue_shell
+    
+    # Step 2: Load kernel modules
+    load_modules
+    
+    # Step 3: Give devices time to initialize
+    log_info "Waiting for devices to initialize..."
+    sleep 2
+    
+    # Step 4: Detect available devices
+    detect_devices
+    
+    # Step 5: Detect boot mode
+    local boot_mode=$(detect_boot_mode)
+    
+    # Step 6: Setup root filesystem based on boot mode
+    local rootfs_mount=""
+    
+    case "$boot_mode" in
+        sdisk)
+            # SDISK mode - use specified VISO file
+            log_step "SDISK mode: $SDISK_VALUE"
+            rootfs_mount=$(setup_rootfs_virtio) || rescue_shell
+            ;;
+        virtio)
+            rootfs_mount=$(setup_rootfs_virtio) || rescue_shell
+            ;;
+        disk)
+            rootfs_mount=$(setup_rootfs_disk) || rescue_shell
+            ;;
+        nvme)
+            rootfs_mount=$(setup_rootfs_nvme) || rescue_shell
+            ;;
+        cdrom)
+            rootfs_mount=$(setup_rootfs_cdrom) || rescue_shell
+            ;;
+        root)
+            # Direct root device specified
+            rootfs_mount=$(setup_rootfs_sdisk "$ROOT_DEVICE") || rescue_shell
+            ;;
+        *)
+            log_error "Unknown boot mode: $boot_mode"
+            rescue_shell
+            ;;
+    esac
+    
+    # Step 7: Verify rootfs
+    if [ -z "$rootfs_mount" ] || [ ! -d "$rootfs_mount" ]; then
+        log_error "No valid root filesystem found"
+        rescue_shell
+    fi
+    
+    log_ok "Root filesystem ready: $rootfs_mount"
+    
+    # Step 8: Switch to new root
+    do_switch_root "$rootfs_mount" || rescue_shell
+    
+    # Should never reach here
+    log_error "Boot failed - dropping to rescue shell"
+    rescue_shell
+}
+
+# Execute main function
+main "$@"
